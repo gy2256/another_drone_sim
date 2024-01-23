@@ -16,6 +16,7 @@ sys.path.append(env_path)
 sys.path.append(controller_path)
 
 from base_drone_flying import BaseDroneFlying
+from LQR_controller import LQRController
 
 
 
@@ -75,9 +76,16 @@ if __name__ == "__main__":
 
     base = BaseDroneFlying()
 
-    for _ in range(300):
-        base.render()
-        action = np.array([3.0, 0.0, 0.0, -0.00001])
-        base.step(action)
+    LQR = LQRController(A, B, Q, R)
 
+    current_state = base.current_state
+
+    # setpoint: phi, theta, psi, p, q, r, x_dot, y_dot, z_dot, x, y, z
+    setpoint = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0 , 0.0, 0.0, 0.0, 2.0, 2.5, 2.5])
+
+    for _ in range(500):
+        base.render()
+        action = LQR.get_control(current_state, setpoint)
+        current_state, _, _, _, _ = base.step(action)
+    
     plt.show()
