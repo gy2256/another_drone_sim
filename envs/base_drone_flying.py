@@ -49,6 +49,7 @@ class BaseDroneFlying(gym.Env):
         self.max_roll_rate = self.config["StateLimits"]["max_roll_rate"]
         self.max_pitch_rate = self.config["StateLimits"]["max_pitch_rate"]
         self.max_yaw_rate = self.config["StateLimits"]["max_yaw_rate"]
+        self.stable_thrust = self.mass * self.g
 
         self.action_space = gym.spaces.Box(
             low=np.array(
@@ -112,11 +113,13 @@ class BaseDroneFlying(gym.Env):
             return state_dot
 
         # Integrate the state using Runge-Kutta 4th order method
+        action[0] += self.stable_thrust # Add thrust to ensure hovering
         next_state = self.RK4(dynamics, self.current_state, action, self.dt)
         self.current_state = next_state
 
-        return next_state, 0, done, False, {}
         # return observation, reward, terminated, truncated, info
+        return next_state, 0, done, False, {}
+        
 
     def rotation_matrix(self, phi, theta, psi):
         """Create a rotation matrix for given roll (phi), pitch (theta), yaw (psi)."""
