@@ -85,7 +85,7 @@ class BaseDroneFlying(gym.Env):
 
         # Construct the time derivative of the state
         def dynamics(s, a):
-            x, y, z, x_dot, y_dot, z_dot, phi, theta, psi, p, q, r = s
+            phi, theta, psi, p, q, r, x_dot, y_dot, z_dot, x, y, z = s
             u1, u2, u3, u4 = a  # Thrust, torque_x, torque_y, torque_z
 
             # Precompute some common trigonometric values
@@ -102,32 +102,12 @@ class BaseDroneFlying(gym.Env):
             y_ddot = (c_phi * s_theta * s_psi - s_phi * c_psi) * u1 / self.mass
             z_ddot = (c_phi * c_theta) * u1 / self.mass - self.g
 
-            # Orientation dynamics
-            phi_dot = p + q * s_phi * t_theta + r * c_phi * t_theta
-            theta_dot = q * c_phi - r * s_phi
-            psi_dot = q * s_phi / c_theta + r * c_phi / c_theta
-
             # Angular velocity dynamics
             p_dot = (u2 - (self.Iyy - self.Izz) * q * r) / self.Ixx
             q_dot = (u3 - (self.Izz - self.Ixx) * p * r) / self.Iyy
             r_dot = (u4 - (self.Ixx - self.Iyy) * p * q) / self.Izz
 
-            state_dot = np.array(
-                [
-                    x_dot,
-                    y_dot,
-                    z_dot,
-                    x_ddot,
-                    y_ddot,
-                    z_ddot,
-                    phi_dot,
-                    theta_dot,
-                    psi_dot,
-                    p_dot,
-                    q_dot,
-                    r_dot,
-                ]
-            )
+            state_dot = np.array([p, q, r, p_dot, q_dot, r_dot, x_ddot, y_ddot, z_ddot, x_dot, y_dot, z_dot])
 
             return state_dot
 
@@ -167,7 +147,7 @@ class BaseDroneFlying(gym.Env):
         # current_state = self.observation_space.sample()
 
         # Extract drone's position from the state
-        x, y, z, _, _, _, phi, theta, psi, _, _, _ = self.current_state
+        phi, theta, psi, p, q, r, x_dot, y_dot, z_dot, x, y, z = self.current_state
 
         # Plot the drone's position
         self.ax.scatter(x, y, z, c="r", marker="o", s=10)
