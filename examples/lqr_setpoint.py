@@ -73,7 +73,11 @@ if __name__ == "__main__":
             [0, 0, 0, 0],
         ]
     )
-
+    #Q = np.diag([1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.]) # for drone_params2.json
+    #R = np.diag([5.0 , 5.0, 5.0, 5.0]) # for drone_params2.json
+    Q = np.diag([10e2, 10e2, 10e2, 10., 10., 10., 10e2, 10e2, 10e3, 10e3, 10e3, 10e4]) # for drone_parames.json
+    R = np.diag([10e3 , 10e7, 10e7, 10e7]) # for drone_parames.json
+    
     base = BaseDroneFlying()
 
     LQR = LQRController(A, B, Q, R)
