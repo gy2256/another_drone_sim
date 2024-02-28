@@ -2,23 +2,26 @@ import numpy as np
 import gymnasium as gym
 import os
 
-env_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__))))
-
+import scipy.integrate
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 
 import json
 import os.path
 
-import torch
+config_path = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config")
+)
 
 
 class BaseDroneFlying(gym.Env):
-    def __init__(self):
+    def __init__(
+        self, drone_params: str = os.path.join(config_path, "drone_params.json")
+    ) -> None:
         super(BaseDroneFlying, self).__init__()
+
         try:
-            if os.path.exists(os.path.join(env_path, "drone_params.json")):
-                with open(os.path.join(env_path, "drone_params.json")) as json_file:
+            if os.path.exists(drone_params):
+                with open(drone_params) as json_file:
                     self.config = json.load(json_file)
 
                 print("Drone parameters loaded for environment")
@@ -62,7 +65,7 @@ class BaseDroneFlying(gym.Env):
         )
 
         self.current_state = np.zeros(self.state_space_shape)
-        self.current_state[2] = 0.5  # set height to be 1 meter
+        self.current_state[11] = 1.0  # set height to be 0.5 meter
 
         # Initialize the matplotlib 3D plot
         self.fig = plt.figure()
@@ -85,9 +88,11 @@ class BaseDroneFlying(gym.Env):
         done = False
 
         # Construct the time derivative of the state
-        def dynamics(s, a):
+        def dynamics(t, s, a):
+            # https://www.kth.se/polopoly_fs/1.588039.1600688317!/Thesis%20KTH%20-%20Francesco%20Sabatino.pdf
+
             phi, theta, psi, p, q, r, x_dot, y_dot, z_dot, x, y, z = s
-            u1, u2, u3, u4 = a  # Thrust, torque_x, torque_y, torque_z
+            u1, u2, u3, u4 = a  # Thrust, torque_roll, torque_pitch, torque_yaw
 
             # Precompute some common trigonometric values
             c_phi = np.cos(phi)
@@ -103,26 +108,48 @@ class BaseDroneFlying(gym.Env):
             y_ddot = (c_phi * s_theta * s_psi - s_phi * c_psi) * u1 / self.mass
             z_ddot = (c_phi * c_theta) * u1 / self.mass - self.g
 
-            # Angular velocity dynamics
-            p_dot = (u2 - (self.Iyy - self.Izz) * q * r) / self.Ixx
-            q_dot = (u3 - (self.Izz - self.Ixx) * p * r) / self.Iyy
-            r_dot = (u4 - (self.Ixx - self.Iyy) * p * q) / self.Izz
+            # Orientation dynamics
+            phi_dot = p + q * s_phi * t_theta + r * c_phi * t_theta
+            theta_dot = q * c_phi - r * s_phi
+            psi_dot = q * s_phi / c_theta + r * c_phi / c_theta
 
-            state_dot = np.array([p, q, r, p_dot, q_dot, r_dot, x_ddot, y_ddot, z_ddot, x_dot, y_dot, z_dot])
+            p_dot = ((self.Iyy - self.Izz) * q * r) / self.Ixx + (u2 / self.Ixx)
+            q_dot = ((self.Izz - self.Ixx) * p * r) / self.Iyy + (u3 / self.Iyy)
+            r_dot = ((self.Ixx - self.Iyy) * p * q) / self.Izz + (u4 / self.Izz)
+
+            state_dot = np.array(
+                [
+                    p,
+                    q,
+                    r,
+                    p_dot,
+                    q_dot,
+                    r_dot,
+                    x_ddot,
+                    y_ddot,
+                    z_ddot,
+                    x_dot,
+                    y_dot,
+                    z_dot,
+                ]
+            )
 
             return state_dot
 
-        # Integrate the state using Runge-Kutta 4th order method
-        action[0] += self.stable_thrust # Add thrust to ensure hovering
-        next_state = self.RK4(dynamics, self.current_state, action, self.dt)
+        action[0] += self.stable_thrust
+
+        solution = scipy.integrate.solve_ivp(
+            dynamics, (0, self.dt), self.current_state, args=(action,)
+        )
+        next_state = solution.y[:, -1]
+
         self.current_state = next_state
 
-        # return observation, reward, terminated, truncated, info
+        # observation, reward, terminated, truncated, info
         return next_state, 0, done, False, {}
-        
 
     def rotation_matrix(self, phi, theta, psi):
-        """Create a rotation matrix for given roll (phi), pitch (theta), yaw (psi)."""
+        # Create a rotation matrix for given roll (phi), pitch (theta), yaw (psi)
         R_x = np.array(
             [[1, 0, 0], [0, np.cos(phi), -np.sin(phi)], [0, np.sin(phi), np.cos(phi)]]
         )
@@ -146,24 +173,22 @@ class BaseDroneFlying(gym.Env):
         self.ax.clear()
 
         # Get the current state of the drone
-        # current_state = torch.zeros(12)  # Replace with actual state
-        # current_state = self.observation_space.sample()
-
-        # Extract drone's position from the state
         phi, theta, psi, p, q, r, x_dot, y_dot, z_dot, x, y, z = self.current_state
 
         # Plot the drone's position
-        self.ax.scatter(x, y, z, c="r", marker="o", s=10)
+        self.ax.scatter(x, y, z, c="r", marker="o", s=1)
 
-        # Define the length of the drone arms
+        # Define the length of the drone arms, this is only for visualization not true arm length
         arm_length = 0.3
 
+        # Adjust the arms for "X" configuration
+        # Diagonal arms with 45-degree angle for "X" configuration
         arms = np.array(
             [
-                [arm_length, 0, 0],
-                [-arm_length, 0, 0],
-                [0, arm_length, 0],
-                [0, -arm_length, 0],
+                [arm_length / np.sqrt(2), arm_length / np.sqrt(2), 0],
+                [-arm_length / np.sqrt(2), -arm_length / np.sqrt(2), 0],
+                [arm_length / np.sqrt(2), -arm_length / np.sqrt(2), 0],
+                [-arm_length / np.sqrt(2), arm_length / np.sqrt(2), 0],
             ]
         )
 
@@ -172,12 +197,18 @@ class BaseDroneFlying(gym.Env):
         # Apply the rotation and translation
         arms_rotated = np.dot(arms, R.T) + np.array([x, y, z])
 
-        # Draw the arms
+        # Draw the arms in "X" configuration
         for i in range(0, 4, 2):
             self.ax.plot(
                 [arms_rotated[i][0], arms_rotated[i + 1][0]],
                 [arms_rotated[i][1], arms_rotated[i + 1][1]],
                 [arms_rotated[i][2], arms_rotated[i + 1][2]],
+                c="b",
+            )
+            self.ax.plot(
+                [arms_rotated[i + 1][0], arms_rotated[(i + 2) % 4][0]],
+                [arms_rotated[i + 1][1], arms_rotated[(i + 2) % 4][1]],
+                [arms_rotated[i + 1][2], arms_rotated[(i + 2) % 4][2]],
                 c="b",
             )
 
@@ -191,8 +222,7 @@ class BaseDroneFlying(gym.Env):
         plt.pause(0.001)  # Pause to update the plot
 
     def reset(self):
-        self.current_state = self.observation_space.sample()
-        # return observation, info
+        pass
 
     def close(self):
         pass
