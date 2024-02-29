@@ -39,16 +39,14 @@ def load_config(config_file):
 
 def main():
     drone_params = os.path.join(config_path, "drone_params.json")
-    LQR_params = os.path.join(config_path, "LQR_params.json")
-
     drone_config = load_config(drone_params)
-    LQR_config = load_config(LQR_params)
+
 
 
     base = BaseDroneFlying()
     nmpc_controller = nmpc.construct_mpc(optimizer="NMPC_Crazyflie",
                                          horizon=5,
-                                         dt=0.01)
+                                         dt=drone_config["dt"])
 
     current_state = base.current_state
 
